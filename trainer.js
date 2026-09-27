@@ -1,3 +1,4 @@
+
 // ============================================
 // DebutFlow — тренажёр по полной базе дебютов
 // ============================================
@@ -18,13 +19,13 @@ class ChessTrainer {
         this.isCompletionAnnounced = false;
         this.mode = null;
 
-        // Mobile/touch controls: tap a piece, then tap the destination square.
-        // Drag-and-drop remains enabled on desktop, but is disabled on coarse touch screens.
+        // Mobile control mode: on touch screens a move is made with two light taps:
+        // first tap selects the piece, second tap selects the destination square.
         this.useTapControls =
-            (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
             (navigator.maxTouchPoints || 0) > 0 ||
-            'ontouchstart' in window;
+            (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
         this.tapSelectedSquare = null;
+        this.tapInputBound = false;
 
         this.currentOpeningIndex = 0;
         this.currentVariationIndex = -1;
@@ -91,34 +92,36 @@ class ChessTrainer {
         this.tapSelectedSquare = null;
     }
 
-    getSquareFromEventTarget(target) {
-        const squareElement = $(target).closest('.square-55d63');
-        if (!squareElement.length) return null;
+    getSquareNameFromElement(element) {
+        const squareElement = element?.closest?.('.square-55d63');
+        if (!squareElement) return null;
 
-        const classes = String(squareElement.attr('class') || '').split(/\s+/);
-        const squareClass = classes.find(className => /^square-[a-h][1-8]$/.test(className));
+        // chessboard.js normally stores the coordinate in data-square.
+        if (squareElement.dataset?.square) return squareElement.dataset.square;
+
+        // Fallback for builds where only the square-e2 style class is present.
+        const squareClass = [...squareElement.classList]
+            .find(className => /^square-[a-h][1-8]$/.test(className));
         return squareClass ? squareClass.slice(7) : null;
     }
 
     selectTapSquare(square) {
         this.clearTapSelection();
         this.tapSelectedSquare = square;
-        $(`#board .square-${square}`).addClass('square-tap-selected');
+        const squareElement = document.querySelector(`#board .square-${square}`);
+        squareElement?.classList.add('square-tap-selected');
     }
 
     handleTapSquare(square) {
-        if (!this.useTapControls || this.mode !== 'practice' || this.isTrainingComplete || !square) return;
+        if (this.mode !== 'practice' || this.isTrainingComplete || !square) return;
 
-        const moves = this.getCurrentMoves();
-        const expectedMove = moves[this.currentMoveIndex];
-
-        // Ignore input while DebutFlow is making the opponent move.
+        const expectedMove = this.getCurrentMoves()[this.currentMoveIndex];
         if (!expectedMove || expectedMove.color !== this.playerSide) {
             this.clearTapSelection();
             return;
         }
 
-        const piece = this.game.get(square);
+        const piece = this.game?.get(square);
 
         // First tap: select one of the player's pieces.
         if (!this.tapSelectedSquare) {
@@ -127,13 +130,13 @@ class ChessTrainer {
             return;
         }
 
-        // Second tap on the same square cancels the selection.
+        // Tapping the selected piece again cancels the selection.
         if (square === this.tapSelectedSquare) {
             this.clearTapSelection();
             return;
         }
 
-        // Tapping another own piece changes the selected piece.
+        // Tapping another own piece switches the selection to that piece.
         if (piece && piece.color === this.playerSide) {
             this.selectTapSquare(square);
             return;
@@ -142,12 +145,49 @@ class ChessTrainer {
         const source = this.tapSelectedSquare;
         this.clearTapSelection();
 
-        // Reuse the same move validation as desktop drag-and-drop.
+        // Use exactly the same validation as desktop drag-and-drop.
         this.handleUserMove(source, square);
 
-        // chessboard.js does not move pieces visually when draggable=false,
-        // so synchronize the board immediately after a tap move.
+        // In tap mode chessboard.js is not draggable, so sync it manually.
         this.forceUpdateBoard();
+    }
+
+    bindTapInput() {
+        if (!this.useTapControls || this.tapInputBound) return;
+
+        const boardElement = document.getElementById('board');
+        if (!boardElement) return;
+
+        const handleElement = (target, event) => {
+            if (this.mode !== 'practice' || this.isTrainingComplete) return;
+
+            const square = this.getSquareNameFromElement(target);
+            if (!square) return;
+
+            // Take control of the touch before chessboard.js can interpret it as drag/long-press.
+            event.preventDefault();
+            event.stopPropagation();
+            this.handleTapSquare(square);
+        };
+
+        if (window.PointerEvent) {
+            // Capture phase is intentional: it makes a short, normal tap reliable on Android.
+            boardElement.addEventListener('pointerdown', event => {
+                if (event.pointerType === 'mouse') return;
+                handleElement(event.target, event);
+            }, { capture: true, passive: false });
+        } else {
+            // Fallback for older iOS/Android browsers.
+            boardElement.addEventListener('touchstart', event => {
+                const touch = event.touches?.[0] || event.changedTouches?.[0];
+                const target = touch
+                    ? (document.elementFromPoint(touch.clientX, touch.clientY) || event.target)
+                    : event.target;
+                handleElement(target, event);
+            }, { capture: true, passive: false });
+        }
+
+        this.tapInputBound = true;
     }
 
     highlightSquare(square, type = 'highlight') {
@@ -467,7 +507,6 @@ class ChessTrainer {
         if (this.board) this.board.destroy();
 
         const config = {
-            // Touch devices use reliable tap-to-move instead of long-press/drag.
             draggable: draggable && !this.useTapControls,
             position: 'start',
             orientation: this.playerSide === 'b' ? 'black' : 'white',
@@ -495,6 +534,7 @@ class ChessTrainer {
         this.boardElement?.classList.add('loaded');
         $('#loadingOverlay').hide();
         this.forceUpdateBoard();
+        this.bindTapInput();
     }
 
     updateButtonsVisibility() {
@@ -612,7 +652,7 @@ class ChessTrainer {
         if (announce) {
             this.addChatMessage(`🎯 Практика. Вы играете за ${this.sideLabel}; ходы соперника делает DebutFlow.`, false, true);
             if (this.useTapControls) {
-                this.addChatMessage('📱 На телефоне: один раз нажмите на фигуру, затем один раз на нужную клетку.', false, true);
+                this.addChatMessage('📱 Телефон: коснитесь фигуры один раз, затем коснитесь нужной клетки.', false, true);
             }
         }
 
@@ -784,29 +824,6 @@ class ChessTrainer {
         $('#hintBtn').on('click', () => this.showHint());
         $('#clearChatBtn').on('click', () => this.clearChat());
         $('#nextVariationBtn').on('click', () => this.nextVariation());
-
-        // Reliable mobile input: a normal light tap selects/moves a piece.
-        // pointerup is used instead of click so chessboard.js does not require a long press.
-        if (this.useTapControls) {
-            $('#board')
-                .off('pointerup.debutflowTap touchend.debutflowTap')
-                .on('pointerup.debutflowTap', '.square-55d63', event => {
-                    // Ignore synthetic mouse pointer events on touch-capable devices.
-                    if (event.originalEvent?.pointerType === 'mouse') return;
-                    event.preventDefault();
-                    const square = this.getSquareFromEventTarget(event.target);
-                    this.handleTapSquare(square);
-                });
-
-            // Fallback for older mobile browsers without Pointer Events.
-            if (!window.PointerEvent) {
-                $('#board').on('touchend.debutflowTap', '.square-55d63', event => {
-                    event.preventDefault();
-                    const square = this.getSquareFromEventTarget(event.target);
-                    this.handleTapSquare(square);
-                });
-            }
-        }
     }
 
     init() {
