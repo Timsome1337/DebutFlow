@@ -18,6 +18,14 @@ class ChessTrainer {
         this.isCompletionAnnounced = false;
         this.mode = null;
 
+        // Mobile/touch controls: tap a piece, then tap the destination square.
+        // Drag-and-drop remains enabled on desktop, but is disabled on coarse touch screens.
+        this.useTapControls =
+            (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+            (navigator.maxTouchPoints || 0) > 0 ||
+            'ontouchstart' in window;
+        this.tapSelectedSquare = null;
+
         this.currentOpeningIndex = 0;
         this.currentVariationIndex = -1;
         this.currentOpening = this.openings[0] || null;
@@ -76,6 +84,70 @@ class ChessTrainer {
 
     clearHighlights() {
         $('.square-55d63').removeClass('square-highlight square-error');
+    }
+
+    clearTapSelection() {
+        $('#board .square-55d63').removeClass('square-tap-selected');
+        this.tapSelectedSquare = null;
+    }
+
+    getSquareFromEventTarget(target) {
+        const squareElement = $(target).closest('.square-55d63');
+        if (!squareElement.length) return null;
+
+        const classes = String(squareElement.attr('class') || '').split(/\s+/);
+        const squareClass = classes.find(className => /^square-[a-h][1-8]$/.test(className));
+        return squareClass ? squareClass.slice(7) : null;
+    }
+
+    selectTapSquare(square) {
+        this.clearTapSelection();
+        this.tapSelectedSquare = square;
+        $(`#board .square-${square}`).addClass('square-tap-selected');
+    }
+
+    handleTapSquare(square) {
+        if (!this.useTapControls || this.mode !== 'practice' || this.isTrainingComplete || !square) return;
+
+        const moves = this.getCurrentMoves();
+        const expectedMove = moves[this.currentMoveIndex];
+
+        // Ignore input while DebutFlow is making the opponent move.
+        if (!expectedMove || expectedMove.color !== this.playerSide) {
+            this.clearTapSelection();
+            return;
+        }
+
+        const piece = this.game.get(square);
+
+        // First tap: select one of the player's pieces.
+        if (!this.tapSelectedSquare) {
+            if (!piece || piece.color !== this.playerSide) return;
+            this.selectTapSquare(square);
+            return;
+        }
+
+        // Second tap on the same square cancels the selection.
+        if (square === this.tapSelectedSquare) {
+            this.clearTapSelection();
+            return;
+        }
+
+        // Tapping another own piece changes the selected piece.
+        if (piece && piece.color === this.playerSide) {
+            this.selectTapSquare(square);
+            return;
+        }
+
+        const source = this.tapSelectedSquare;
+        this.clearTapSelection();
+
+        // Reuse the same move validation as desktop drag-and-drop.
+        this.handleUserMove(source, square);
+
+        // chessboard.js does not move pieces visually when draggable=false,
+        // so synchronize the board immediately after a tap move.
+        this.forceUpdateBoard();
     }
 
     highlightSquare(square, type = 'highlight') {
@@ -391,10 +463,12 @@ class ChessTrainer {
     }
 
     recreateBoard(draggable) {
+        this.clearTapSelection();
         if (this.board) this.board.destroy();
 
         const config = {
-            draggable,
+            // Touch devices use reliable tap-to-move instead of long-press/drag.
+            draggable: draggable && !this.useTapControls,
             position: 'start',
             orientation: this.playerSide === 'b' ? 'black' : 'white',
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
@@ -537,6 +611,9 @@ class ChessTrainer {
 
         if (announce) {
             this.addChatMessage(`🎯 Практика. Вы играете за ${this.sideLabel}; ходы соперника делает DebutFlow.`, false, true);
+            if (this.useTapControls) {
+                this.addChatMessage('📱 На телефоне: один раз нажмите на фигуру, затем один раз на нужную клетку.', false, true);
+            }
         }
 
         setTimeout(() => this.executeOpponentMove(), 80);
@@ -707,6 +784,29 @@ class ChessTrainer {
         $('#hintBtn').on('click', () => this.showHint());
         $('#clearChatBtn').on('click', () => this.clearChat());
         $('#nextVariationBtn').on('click', () => this.nextVariation());
+
+        // Reliable mobile input: a normal light tap selects/moves a piece.
+        // pointerup is used instead of click so chessboard.js does not require a long press.
+        if (this.useTapControls) {
+            $('#board')
+                .off('pointerup.debutflowTap touchend.debutflowTap')
+                .on('pointerup.debutflowTap', '.square-55d63', event => {
+                    // Ignore synthetic mouse pointer events on touch-capable devices.
+                    if (event.originalEvent?.pointerType === 'mouse') return;
+                    event.preventDefault();
+                    const square = this.getSquareFromEventTarget(event.target);
+                    this.handleTapSquare(square);
+                });
+
+            // Fallback for older mobile browsers without Pointer Events.
+            if (!window.PointerEvent) {
+                $('#board').on('touchend.debutflowTap', '.square-55d63', event => {
+                    event.preventDefault();
+                    const square = this.getSquareFromEventTarget(event.target);
+                    this.handleTapSquare(square);
+                });
+            }
+        }
     }
 
     init() {
