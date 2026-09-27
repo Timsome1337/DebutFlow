@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="description" content="DebutFlow — шахматный тренажёр дебютов">
     <title>DebutFlow — тренажёр шахматных дебютов</title>
-
     <link rel="preconnect" href="https://code.jquery.com">
     <link rel="preconnect" href="https://cdnjs.cloudflare.com">
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -20,7 +19,6 @@
             <h1>♜ DebutFlow ♞</h1>
             <p id="headerSubtitle">Тренажёр шахматных дебютов</p>
         </div>
-
         <div class="library-panel">
             <div class="select-group opening-group">
                 <label for="openingSelect">Дебют</label>
@@ -32,14 +30,12 @@
                 <span id="lineCounter" class="line-counter">Случайная линия</span>
             </div>
         </div>
-
         <div class="main-content">
             <div class="board-section">
                 <div class="current-opening-card">
                     <div id="currentOpeningName" class="current-opening-name">Дебют</div>
                     <div id="currentVariationName" class="current-variation-name">Случайная линия</div>
                 </div>
-
                 <div class="board-wrapper">
                     <div class="loading-overlay" id="loadingOverlay">
                         <div class="spinner"></div>
@@ -47,7 +43,6 @@
                     </div>
                     <div id="board"></div>
                 </div>
-
                 <div class="controls-panel">
                     <div class="mode-buttons">
                         <button id="modeStudyBtn" class="control-btn mode-btn">📚 Изучение ходов</button>
@@ -66,7 +61,6 @@
                     </div>
                 </div>
             </div>
-
             <div class="chat-section">
                 <div class="chat-header">
                     <span class="chat-icon">💬</span>
@@ -77,12 +71,12 @@
             </div>
         </div>
     </div>
-
     <noscript>
         <div style="text-align:center;padding:20px;color:white;">Для работы DebutFlow необходим JavaScript.</div>
     </noscript>
 
     <script src="openings.js"></script>
     <script src="trainer.js"></script>
+    <script src="mobile-controls.js"></script>
 </body>
 </html>
